@@ -320,11 +320,12 @@ def draw_wheel_arrow(center_x, bottom_y, w, h, direction, color):
     (center_x, bottom_y) and whose size is (w, h).
     direction: 'UP' or 'DOWN'
     """
-    gap = h * 0.2
-    head_h = h * 0.45
+    # Proportions: gap 0.10w, head 0.16w x 0.29w, shaft 0.14w x 0.115w.
+    gap = h * 0.25
+    head_h = h * 0.40
     shaft_h = h - gap - head_h
-    head_hw = w * 0.18
-    shaft_hw = w * 0.07
+    head_hw = w * 0.145
+    shaft_hw = w * 0.0575
     y0 = bottom_y + gap
     if direction == 'UP':
         shaft_bottom = y0
@@ -635,7 +636,7 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
     # Height ratio for hold mouse status (against width).
     HEIGHT_RATIO_FOR_MOUSE_HOLD_STATUS = 1.3
     # Height of the mouse wheel scroll arrow, relative to the mouse width.
-    HEIGHT_RATIO_FOR_MOUSE_WHEEL_ARROW = 0.35
+    HEIGHT_RATIO_FOR_MOUSE_WHEEL_ARROW = 0.40
 
     # Margin ratio for hold modifier keys box (against text height).
     MARGIN_RATIO_FOR_MODIFIER_KEYS_BOX = 0.2
@@ -2048,13 +2049,23 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
         self.update_mouse_buttons_status(event, user_prefs)
 
         # Update mouse wheel scroll.
+        wheel_direction = None
         if event.value == 'PRESS':
             if event.type in ('WHEELUPMOUSE', 'WHEELINMOUSE'):
-                self.mouse_wheel_status['direction'] = 'UP'
-                self.mouse_wheel_status['time'] = current_time
+                wheel_direction = 'UP'
             elif event.type in ('WHEELDOWNMOUSE', 'WHEELOUTMOUSE'):
-                self.mouse_wheel_status['direction'] = 'DOWN'
-                self.mouse_wheel_status['time'] = current_time
+                wheel_direction = 'DOWN'
+        if event.type == 'TRACKPADPAN':
+            # Trackpad / Magic Mouse scroll (e.g. macOS). The pan delta is
+            # the difference between the current and previous position.
+            delta_y = event.mouse_y - event.mouse_prev_y
+            if delta_y > 0:
+                wheel_direction = 'UP'
+            elif delta_y < 0:
+                wheel_direction = 'DOWN'
+        if wheel_direction is not None:
+            self.mouse_wheel_status['direction'] = wheel_direction
+            self.mouse_wheel_status['time'] = current_time
 
         # Update event history.
         if not self.is_ignore_event(event, prefs=prefs) and \
