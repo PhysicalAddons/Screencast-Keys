@@ -158,6 +158,11 @@ You can change the display mode from **Mode** option.
 
 ![Option (Show Mouse Events)](images/tutorial/option_show_mouse_events.png)
 
+In **Hold Status** mode, scrolling the mouse wheel shows an arrow above the
+mouse figure for a short time, and the middle button is highlighted.
+
+![Mouse Wheel Scroll](images/tutorial/option_mouse_wheel.png)
+
 ### Show Last Operators
 
 If **Show Last Operators** option is enabled, the last executed operator will

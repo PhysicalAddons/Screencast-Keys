@@ -300,6 +300,51 @@ def draw_rounded_box(x, y, w, h, round_radius, fill=False,
     gpu.state.blend_set(original_state)
 
 
+def draw_polygon(points, color):
+    """Draw a filled convex polygon."""
+    original_state = gpu.state.blend_get()
+    gpu.state.blend_set('ALPHA')
+    imm.immColor4f(*color)
+    imm.immBegin(imm.GL_TRIANGLE_FAN)
+    for p in points:
+        imm.immVertex2f(p[0], p[1])
+    imm.immEnd()
+    imm.immColor4f(1.0, 1.0, 1.0, 1.0)
+    gpu.state.blend_set(original_state)
+
+
+def draw_wheel_arrow(center_x, bottom_y, w, h, direction, color):
+    """Draw a block arrow for the mouse wheel scroll.
+
+    The arrow is drawn in the box whose bottom-center is
+    (center_x, bottom_y) and whose size is (w, h).
+    direction: 'UP' or 'DOWN'
+    """
+    gap = h * 0.2
+    head_h = h * 0.45
+    shaft_h = h - gap - head_h
+    head_hw = w * 0.18
+    shaft_hw = w * 0.07
+    y0 = bottom_y + gap
+    if direction == 'UP':
+        shaft_bottom = y0
+        shaft_top = y0 + shaft_h
+        head = [(center_x - head_hw, shaft_top),
+                (center_x + head_hw, shaft_top),
+                (center_x, shaft_top + head_h)]
+    else:
+        shaft_bottom = y0 + head_h
+        shaft_top = shaft_bottom + shaft_h
+        head = [(center_x + head_hw, shaft_bottom),
+                (center_x - head_hw, shaft_bottom),
+                (center_x, y0)]
+    draw_polygon([(center_x - shaft_hw, shaft_bottom),
+                  (center_x + shaft_hw, shaft_bottom),
+                  (center_x + shaft_hw, shaft_top),
+                  (center_x - shaft_hw, shaft_top)], color)
+    draw_polygon(head, color)
+
+
 def draw_rect(x1, y1, x2, y2, color):
     imm.immColor4f(*color)
 
@@ -536,6 +581,11 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
         'RIGHTMOUSE': 'RELEASE',
         'MIDDLEMOUSE': 'RELEASE',
     }
+    # Last mouse wheel scroll. 'direction' is one of [None, 'UP', 'DOWN'].
+    mouse_wheel_status = {
+        'direction': None,
+        'time': 0.0,
+    }
     # Hold keys (Used for internal state management).
     # This data is updated by using 'PRESS' and 'RELEASE' events.
     keys_status_internal = {
@@ -584,6 +634,8 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
 
     # Height ratio for hold mouse status (against width).
     HEIGHT_RATIO_FOR_MOUSE_HOLD_STATUS = 1.3
+    # Height of the mouse wheel scroll arrow, relative to the mouse width.
+    HEIGHT_RATIO_FOR_MOUSE_WHEEL_ARROW = 0.35
 
     # Margin ratio for hold modifier keys box (against text height).
     MARGIN_RATIO_FOR_MODIFIER_KEYS_BOX = 0.2
@@ -600,6 +652,8 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
 
     # Interval for 'TIMER' event (redraw).
     TIMER_STEP = 0.1
+    # Time (seconds) to display the mouse wheel scroll arrow.
+    MOUSE_WHEEL_DISPLAY_TIME = 0.3
 
     # Maximum interval for ignoring same event.
     INTERVAL_FOR_IGNORE_EVENT = 0.05
@@ -647,6 +701,14 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
     @classmethod
     def is_running(cls):
         return cls.running
+
+    @classmethod
+    def mouse_wheel_direction(cls):
+        """Return the wheel scroll direction to display, or None."""
+        elapsed = time.time() - cls.mouse_wheel_status['time']
+        if elapsed <= cls.MOUSE_WHEEL_DISPLAY_TIME:
+            return cls.mouse_wheel_status['direction']
+        return None
 
     @classmethod
     def is_modifier_event(cls, event):
@@ -943,6 +1005,9 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
                     prefs.mouse_size * cls.HEIGHT_RATIO_FOR_MOUSE_HOLD_STATUS
             mouse_width *= ui_scale
             mouse_height *= ui_scale
+            # Space for the mouse wheel scroll arrow.
+            mouse_height += \
+                mouse_width * cls.HEIGHT_RATIO_FOR_MOUSE_WHEEL_ARROW
         if cls.hold_modifier_keys:
             hold_modifier_keys_width = \
                 cls.text_area_width(modifier_keys_text, font_id) \
@@ -1292,6 +1357,7 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
         mouse_icon_height = 0.0
         mouse_width = 0.0
         mouse_height = 0.0
+        wheel_arrow_height = 0.0
         hold_modifier_keys_start_x = 0.0
         hold_modifier_keys_start_y = 0.0
         hold_modifier_keys_width = 0.0
@@ -1309,6 +1375,8 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
                     prefs.mouse_size * cls.HEIGHT_RATIO_FOR_MOUSE_HOLD_STATUS
             mouse_width = mouse_icon_width * ui_scale
             mouse_height = mouse_icon_height * ui_scale
+            wheel_arrow_height = \
+                mouse_width * cls.HEIGHT_RATIO_FOR_MOUSE_WHEEL_ARROW
         if cls.hold_modifier_keys:
             hold_modifier_keys_start_x = x
             hold_modifier_keys_start_y = y
@@ -1336,7 +1404,8 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
 
         layer_width = mouse_width + separator_width + \
             hold_modifier_keys_width + margin * 2
-        layer_height = max(mouse_height, hold_modifier_keys_height) + \
+        mouse_row_height = mouse_height + wheel_arrow_height
+        layer_height = max(mouse_row_height, hold_modifier_keys_height) + \
             margin * 2
 
         offset_x, offset_y = cls.get_alignment_offset(
@@ -1346,14 +1415,22 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
         hold_modifier_keys_start_x += offset_x
         hold_modifier_keys_start_y += offset_y
 
-        if mouse_height > hold_modifier_keys_height:
+        if mouse_row_height > hold_modifier_keys_height:
+            # Center the modifier keys on the mouse body (the wheel arrow
+            # space above the body is not counted).
             hold_modifier_keys_start_y += \
-                (mouse_height - hold_modifier_keys_height) / 2
+                max(0.0, (mouse_height - hold_modifier_keys_height) / 2)
         else:
-            mouse_start_y += (hold_modifier_keys_height - mouse_height) / 2
+            mouse_start_y += \
+                (hold_modifier_keys_height - mouse_row_height) / 2
 
         # Draw hold mouse status.
         if show_mouse_hold_status(prefs):
+            wheel_direction = cls.mouse_wheel_direction()
+            middle_button_status = cls.mouse_buttons_status['MIDDLEMOUSE']
+            if wheel_direction is not None:
+                # Highlight the wheel while scrolling.
+                middle_button_status = 'PRESS'
             if prefs.use_custom_mouse_image:
                 draw_custom_mouse(mouse_start_x,
                                   mouse_start_y,
@@ -1361,7 +1438,7 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
                                   mouse_icon_height * ui_scale,
                                   cls.mouse_buttons_status['LEFTMOUSE'],
                                   cls.mouse_buttons_status['RIGHTMOUSE'],
-                                  cls.mouse_buttons_status['MIDDLEMOUSE'],
+                                  middle_button_status,
                                   prefs.custom_mouse_image_display_mode,
                                   common.CUSTOM_MOUSE_IMG_BASE_NAME,
                                   common.CUSTOM_MOUSE_IMG_LMOUSE_NAME,
@@ -1374,12 +1451,17 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
                     mouse_icon_height * ui_scale,
                     cls.mouse_buttons_status['LEFTMOUSE'],
                     cls.mouse_buttons_status['RIGHTMOUSE'],
-                    cls.mouse_buttons_status['MIDDLEMOUSE'],
+                    middle_button_status,
                     prefs.color,
                     prefs.mouse_size * 0.5 * ui_scale,
                     fill=prefs.background,
                     fill_color=prefs.background_color,
                     line_thickness=prefs.line_thickness * ui_line_width)
+            if wheel_direction is not None:
+                draw_wheel_arrow(mouse_start_x + mouse_width / 2,
+                                 mouse_start_y + mouse_height,
+                                 mouse_width, wheel_arrow_height,
+                                 wheel_direction, prefs.color)
 
         # Draw hold modifier keys.
         if cls.hold_modifier_keys or drawing:
@@ -1964,6 +2046,15 @@ class SK_OT_ScreencastKeys(bpy.types.Operator):
 
         # Update hold mouse buttons.
         self.update_mouse_buttons_status(event, user_prefs)
+
+        # Update mouse wheel scroll.
+        if event.value == 'PRESS':
+            if event.type in ('WHEELUPMOUSE', 'WHEELINMOUSE'):
+                self.mouse_wheel_status['direction'] = 'UP'
+                self.mouse_wheel_status['time'] = current_time
+            elif event.type in ('WHEELDOWNMOUSE', 'WHEELOUTMOUSE'):
+                self.mouse_wheel_status['direction'] = 'DOWN'
+                self.mouse_wheel_status['time'] = current_time
 
         # Update event history.
         if not self.is_ignore_event(event, prefs=prefs) and \
