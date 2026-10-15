@@ -4,10 +4,6 @@
 
 ## [Unreleased](https://github.com/nutti/Screencast-Keys/compare/v4.2.0...master)
 
-### Updated Features
-
-* Display mouse wheel scroll (up/down arrow) in the hold mouse status
-
 <!-- markdownlint-disable-next-line MD013 -->
 ## [Version 4.2.2](https://github.com/nutti/Screencast-Keys/compare/v4.2.1...v4.2.2) - 2026.3.22
 
